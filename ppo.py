@@ -9,9 +9,9 @@ class PPO:
         self.sess = tf.Session()
         self.gamma = 0.99
         self.lamda = 0.95
-        self.state_size = 24
+        self.state_size = 33
         self.output_size = 4
-        self.hidden = [128, 128, 128]
+        self.hidden = [400, 300]
         self.batch_size = 32
         self.pi_lr = 0.00025
         self.v_lr = 0.00025
@@ -75,77 +75,95 @@ class PPO:
     
     
     def run(self):
+        from mlagents.envs import UnityEnvironment
 
-        env = gym.make('BipedalWalker-v2')
-        n_step = 512
-        rollout = 0
+        writer = SummaryWriter('runs/ppo')
+        num_worker = 20
+        state_size = 33
+        output_size = 4
+        n_step = 128
         ep = 0
         score = 0
-        state, done = env.reset(), False
-        writer = SummaryWriter()
-        episode = 1000
+
+        env = UnityEnvironment(file_name='env/training', worker_id=0)
+        default_brain = env.brain_names[0]
+        brain = env.brains[default_brain]
+        initial_observation = env.reset()
+
+        env_info = env.reset()
+        states = np.zeros([num_worker, state_size])
 
         while True:
-            rollout += 1
-            values, states, actions, dones, logp_ts, rewards =\
-                     [], [], [], [], [], []
-        
+            values_list, states_list, actions_list, dones_list, logp_ts_list, rewards_list = \
+                        [], [], [], [], [], []
             for _ in range(n_step):
-                #env.render()
-                a, v, logp_t = self.get_action(state)
-                
-                next_state, reward, done, _ = env.step(a)
+                inference = [self.get_action(s) for s in states]
+                actions = [inf[0] for inf in inference]
+                values = [inf[1] for inf in inference]
+                logp_ts = [inf[2] for inf in inference]
 
-                score += reward
+                env_info = env.step(actions)[default_brain]
 
-                states.append(state)
-                values.append(v)
-                actions.append(a)
-                dones.append(done)
-                logp_ts.append(logp_t)
-                rewards.append(reward)
+                next_states = env_info.vector_observations
+                rewards = env_info.rewards
+                dones = env_info.local_done
 
-                state = next_state
+                score += sum(rewards)
 
-                if done:
+                states_list.append(states)
+                values_list.append(values)
+                actions_list.append(actions)
+                dones_list.append(dones)
+                logp_ts_list.append(logp_ts)
+                rewards_list.append(rewards)
+
+                states = next_states
+
+                if dones[0]:
                     ep += 1
-                    writer.add_scalar('data/reward', score, ep)
-                    print(ep, score)
-                    state, done = env.reset(), False
+                    if ep < 1000:
+                        writer.add_scalar('data/reward', score, ep)
+                        print(ep, score)
                     score = 0
-                    if ep == episode:
-                        while True:
-                            state = env.reset()
-                            done = False
-                            while not done:
-                                env.render()
-                                a, _, _ = self.get_action(state)
-                                next_state, _, done, _ = env.step(a)
-                                state = next_state
+
             
-            _, v, _ = self.get_action(state)
-            values.append(v)
-            states = np.stack(states)
-            values = np.stack(values)
-            actions = np.stack(actions)
-            dones = np.stack(dones)
-            logp_ts = np.stack(logp_ts)
-            rewards = np.stack(rewards)
-    
-            current_value = values[:-1]
-            next_value = values[1:]
+            inference = [self.get_action(s) for s in states]
+            values = [inf[1] for inf in inference]
+            values_list.append(values)
+            values_list = np.stack(values_list).transpose([1, 0])
+
+            current_value_list = values_list[:, :-1]
+            next_value_list = values_list[:, 1:]
+
+            states_list = np.stack(states_list).transpose([1, 0, 2]).reshape([-1, state_size])
+            actions_list = np.stack(actions_list).transpose([1, 0, 2]).reshape([-1, output_size])
+            dones_list = np.stack(dones_list).transpose([1, 0]).reshape([-1])
+            logp_ts_list = np.stack(logp_ts_list).transpose([1, 0]).reshape([-1])
+            rewards_list = np.stack(rewards_list).transpose([1, 0]).reshape([-1])
+            current_value_list = np.stack(current_value_list).reshape([-1])
+            next_value_list = np.stack(next_value_list).reshape([-1])
+
+            adv_list, target_list = [], []
+            for idx in range(num_worker):
+                start_idx = idx * n_step
+                end_idx = (idx + 1) * n_step
+                adv, target = cr.get_gaes(
+                    rewards_list[start_idx : end_idx],
+                    dones_list[start_idx : end_idx],
+                    current_value_list[start_idx : end_idx],
+                    next_value_list[start_idx : end_idx],
+                    self.gamma,
+                    self.lamda,
+                    True
+                )
+                adv_list.append(adv)
+                target_list.append(target)
+
+            adv_list = np.stack(adv_list).reshape([-1])
+            target_list = np.stack(target_list).reshape([-1])
             
-            adv, target = cr.get_gaes(rewards, dones, current_value, next_value,
-                                        self.gamma, self.lamda, True)
-            value_loss, kl, ent = self.update(states, actions, target, adv, logp_ts)
-
-            writer.add_scalar('data/value_loss', value_loss, rollout)
-            writer.add_scalar('data/kl', kl, rollout)
-            writer.add_scalar('data/ent', ent, rollout)
-
-            values, states, actions, dones, logp_ts, rewards =\
-                     [], [], [], [], [], []
-
+            value_loss, kl, ent = self.update(states_list, actions_list, target_list, adv_list, logp_ts_list)
+        
 if __name__ == '__main__':
     agent = PPO()
     agent.run()

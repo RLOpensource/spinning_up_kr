@@ -4,42 +4,79 @@ import core as cr
 from buffer import replay_buffer
 from ou_noise import OU_noise
 from tensorboardX import SummaryWriter
+import gym
 
-class DDPG:
+class TD3:
     def __init__(self):
         self.sess = tf.Session()
-        self.memory = replay_buffer(max_length=1e5)
-        self.tau = 0.995
-        self.gamma = 0.99
         self.state_size = 33
         self.output_size = 4
-        self.action_limit = 1.0
+        self.tau = 0.995
+        self.gamma = 0.99
         self.hidden = [400, 300]
         self.batch_size = 64
         self.pi_lr = 1e-3
         self.q_lr = 1e-3
+        self.action_limit = 1.0
+        self.memory = replay_buffer(1e5)
+        self.target_noise = 0.2
         self.noise = OU_noise(self.output_size, 1)
-
+        self.noise_clip = 0.1
+        
         self.x_ph, self.a_ph, self.x2_ph, self.r_ph, self.d_ph = \
             cr.placeholders(self.state_size, self.output_size, self.state_size, None, None)
 
         with tf.variable_scope('main'):
-            self.pi, self.q, self.q_pi = cr.mlp_actor_critic(self.x_ph,
-                self.a_ph, self.hidden, activation=tf.nn.relu, output_activation=tf.tanh,
-                output_size=self.output_size, action_limit=self.action_limit)
+            self.pi, self.q1, self.q2, self.q1_pi = cr.td3_mlp_actor_critic(
+                x=self.x_ph,
+                a=self.a_ph,
+                hidden=self.hidden,
+                activation=tf.nn.relu,
+                output_activation=tf.tanh,
+                output_size=self.output_size,
+                action_limit=self.action_limit
+            )
 
         with tf.variable_scope('target'):
-            self.pi_targ, _, self.q_pi_targ = cr.mlp_actor_critic(self.x2_ph,\
-                self.a_ph, self.hidden, activation=tf.nn.relu, output_activation=tf.tanh,
-                output_size=self.output_size, action_limit=self.action_limit)
+            self.pi_targ, _, _, _ = cr.td3_mlp_actor_critic(
+                x=self.x2_ph,
+                a=self.a_ph,
+                hidden=self.hidden,
+                activation=tf.nn.relu,
+                output_activation=tf.tanh,
+                output_size=self.output_size,
+                action_limit=self.action_limit
+            )
 
-        self.target = tf.stop_gradient(self.r_ph + self.gamma * (1 - self.d_ph) * self.q_pi_targ)
-        self.pi_loss = -tf.reduce_mean(self.q_pi)
-        self.v_loss = tf.reduce_mean((self.q - self.target) ** 2) * 0.5
+        with tf.variable_scope('target', reuse=True):
+            self.eps = tf.random_normal(tf.shape(self.pi_targ), stddev=self.target_noise)
+            self.epsilon = tf.clip_by_value(self.eps, -self.noise_clip, self.noise_clip)
+            self.a_prev = self.pi_targ + self.epsilon
+            self.a2 = tf.clip_by_value(self.a_prev, -self.action_limit, self.action_limit)
+            _, self.q1_targ, self.q2_targ, self.q1_pi_targ = cr.td3_mlp_actor_critic(
+                x=self.x2_ph,
+                a=self.a2,
+                hidden=self.hidden,
+                activation=tf.nn.relu,
+                output_activation=tf.tanh,
+                output_size=self.output_size,
+                action_limit=self.action_limit
+            )
+
+        self.pi_params = cr.get_vars('main/pi')
+        self.q_params = cr.get_vars('main/q')
+
+        self.min_q_targ = tf.minimum(self.q1_targ, self.q2_targ)
+        self.backup = tf.stop_gradient(self.r_ph + self.gamma*(1-self.d_ph)*self.min_q_targ)
+        self.pi_loss = -tf.reduce_mean(self.q1_pi)
+        self.q1_loss = tf.reduce_mean((self.q1-self.backup)**2)
+        self.q2_loss = tf.reduce_mean((self.q2-self.backup)**2)
+        self.v_loss = self.q1_loss + self.q2_loss
+        
         self.pi_optimizer = tf.train.AdamOptimizer(self.pi_lr)
-        self.v_optimizer = tf.train.AdamOptimizer(self.q_lr)
-        self.pi_train = self.pi_optimizer.minimize(self.pi_loss, var_list=cr.get_vars('main/pi'))
-        self.v_train = self.v_optimizer.minimize(self.v_loss, var_list=cr.get_vars('main/q'))
+        self.q_optimizer = tf.train.AdamOptimizer(self.q_lr)
+        self.pi_train = self.pi_optimizer.minimize(self.pi_loss, var_list=self.pi_params)
+        self.v_train = self.pi_optimizer.minimize(self.v_loss, var_list=self.q_params)
 
         self.target_update = tf.group([tf.assign(v_targ, self.tau * v_targ + (1 - self.tau) * v_main)
                                     for v_main, v_targ in zip(cr.get_vars('main'), cr.get_vars('target'))])
@@ -137,7 +174,9 @@ class DDPG:
                 writer.add_scalar('data/epsilon', epsilon, ep)
                 writer.add_scalar('data/memory_size', len(self.memory.memory), ep)
                 score = 0
-            
+
+
 if __name__ == '__main__':
-    agent = DDPG()
+    agent = TD3()
     agent.run()
+    agent.test()
