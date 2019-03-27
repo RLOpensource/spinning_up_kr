@@ -22,6 +22,8 @@ class SAC:
         self.target_noise = 0.2
         self.noise_clip = 0.1
         self.alpha = 0.2
+        self.num_worker = 20
+        self.noise = OU_noise(self.output_size, self.num_worker)
         
         self.x_ph, self.a_ph, self.x2_ph, self.r_ph, self.d_ph = \
             cr.placeholders(self.state_size, self.output_size, self.state_size, None, None)
@@ -112,13 +114,13 @@ class SAC:
         from mlagents.envs import UnityEnvironment
 
         writer = SummaryWriter()
-        num_worker = 20
+        num_worker = self.num_worker
         state_size = self.state_size
         output_size = self.output_size
         ep = 0
         train_size = 5
 
-        env = UnityEnvironment(file_name='env/training', worker_id=0)
+        env = UnityEnvironment(file_name='env/training', worker_id=1)
         default_brain = env.brain_names[0]
         brain = env.brains[default_brain]
         initial_observation = env.reset()
@@ -129,6 +131,7 @@ class SAC:
         states = np.zeros([num_worker, state_size])
         for i in range(start_steps):
             actions = np.clip(np.random.randn(num_worker, output_size), -self.action_limit, self.action_limit)
+            actions += self.noise.sample()
             env_info = env.step(actions)[default_brain]
             next_states = env_info.vector_observations
             rewards = env_info.rewards
@@ -136,6 +139,8 @@ class SAC:
             for s, ns, r, d, a in zip(states, next_states, rewards, dones, actions):
                 self.memory.append(s, ns, r, d, a)
             states = next_states
+            if dones[0]:
+                self.noise.reset()
             if i % train_size == 0:
                 if len(self.memory.memory) > self.batch_size:
                     self.update()
