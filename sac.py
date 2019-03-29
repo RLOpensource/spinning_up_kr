@@ -15,13 +15,13 @@ class SAC:
         self.gamma = 0.99
         self.hidden = [400, 300]
         self.batch_size = 64
-        self.pi_lr = 1e-4
-        self.q_lr = 1e-4
+        self.pi_lr = 1e-3
+        self.q_lr = 1e-3
         self.action_limit = 1.0
         self.memory = replay_buffer(1e5)
         self.target_noise = 0.2
         self.noise_clip = 0.1
-        self.alpha = 0.2
+        self.alpha = 1e-5
         self.num_worker = 20
         self.noise = OU_noise(self.output_size, self.num_worker)
         
@@ -187,8 +187,8 @@ class SAC:
                 print('step : ', step, '| start steps : ', start_steps, '| episode :', ep, '| score : ', score, '| memory size', len(self.memory.memory), '| action random : ', action_random)
                 writer.add_scalar('data/reward', score, ep)
                 writer.add_scalar('data/memory_size', len(self.memory.memory), ep)
+
     
 if __name__ == '__main__':
     agent = SAC()
     agent.run()
-    agent.test()
