@@ -14,8 +14,6 @@ TD3
 
 * These algorithms are demonstrated in Environment Reacher with [ML-Agent](https://github.com/Unity-Technologies/ml-agents).
 
-* The mlagents denpendency is provided in this repository.
-
 * The directory architecture have to be under format.
 
 ```
