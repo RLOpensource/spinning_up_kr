@@ -113,7 +113,7 @@ class SAC:
     def run(self):
         from mlagents.envs import UnityEnvironment
 
-        writer = SummaryWriter()
+        writer = SummaryWriter('runs/sac')
         num_worker = self.num_worker
         state_size = self.state_size
         output_size = self.output_size

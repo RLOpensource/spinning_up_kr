@@ -122,7 +122,7 @@ class TD3:
     def run(self):
         from mlagents.envs import UnityEnvironment
 
-        writer = SummaryWriter()
+        writer = SummaryWriter('runs/td3')
         num_worker = 20
         state_size = 33
         output_size = 4

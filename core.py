@@ -4,6 +4,12 @@ import copy
 
 EPS = 1e-8
 
+def keys_as_sorted_list(dict):
+    return sorted(list(dict.keys()))
+
+def values_as_sorted_list(dict):
+    return [dict[k] for k in keys_as_sorted_list(dict)]
+
 def get_gaes(rewards, dones, values, next_values, gamma, lamda, normalize):
     deltas = [r + gamma * (1 - d) * nv - v for r, d, nv, v in zip(rewards, dones, next_values, values)]
     deltas = np.stack(deltas)
@@ -60,6 +66,50 @@ def apply_squashing_func(mu, pi, logp_pi):
     # To avoid evil machine precision error, strictly clip 1-pi**2 to [0,1] range.
     logp_pi -= tf.reduce_sum(tf.log(clip_but_pass_gradient(1 - pi**2, l=0, u=1) + 1e-6), axis=1)
     return mu, pi, logp_pi
+
+def diagonal_gaussian_kl(mu0, log_std0, mu1, log_std1):
+    var0, var1 = tf.exp(2 * log_std0), tf.exp(2 * log_std1)
+    pre_sum = 0.5*(((mu1- mu0)**2 + var0)/(var1 + EPS) - 1) +  log_std1 - log_std0
+    all_kls = tf.reduce_sum(pre_sum, axis=1)
+    return tf.reduce_mean(all_kls)
+
+def flat_concat(xs):
+    return tf.concat([tf.reshape(x,(-1,)) for x in xs], axis=0)
+
+def flat_grad(f, params):
+    return flat_concat(tf.gradients(xs=params, ys=f))
+
+def hessian_vector_product(f, params):
+    # for H = grad**2 f, compute Hx
+    g = flat_grad(f, params)
+    x = tf.placeholder(tf.float32, shape=g.shape)
+    return x, flat_grad(tf.reduce_sum(g*x), params)
+
+def assign_params_from_flat(x, params):
+    flat_size = lambda p : int(np.prod(p.shape.as_list())) # the 'int' is important for scalars
+    splits = tf.split(x, [flat_size(p) for p in params])
+    new_params = [tf.reshape(p_new, p.shape) for p, p_new in zip(params, splits)]
+    return tf.group([tf.assign(p, p_new) for p, p_new in zip(params, new_params)])
+
+## for trpo
+def trpo_mlp_actor_critic(x, a, hidden, activation, output_activation, output_size):
+    with tf.variable_scope('pi'):
+        mu = actor_mlp_without_action(x, hidden, output_size, activation, output_activation)
+        log_std = tf.ones(tf.shape(mu)) * -1.0
+        std = tf.exp(log_std)
+        pi = mu + tf.random_normal(tf.shape(mu)) * std
+        logp = gaussian_likelihood(a, mu, log_std)
+        logp_pi = gaussian_likelihood(pi, mu, log_std)
+
+        old_mu_ph, old_log_std_ph = placeholders(output_size, output_size)
+        d_kl = diagonal_gaussian_kl(mu, log_std, old_mu_ph, old_log_std_ph)
+        info = {'mu': mu, 'log_std': log_std}
+        info_phs = {'mu': old_mu_ph, 'log_std': old_log_std_ph}
+
+    with tf.variable_scope('v'):
+        v = tf.squeeze(critic_mlp_without_action(x, hidden, activation, None), axis=1)
+
+    return pi, logp, logp_pi, info, info_phs, d_kl, v
 
 ## for sac
 def sac_mlp_actor_critic(x, a, hidden, activation, output_activation,
@@ -120,6 +170,7 @@ def mlp_actor_critic(x, a, hidden, activation, output_activation,
 
     return pi, q, q_pi
 
+## for td3
 def td3_mlp_actor_critic(x, a, hidden, activation, output_activation,
                         output_size, action_limit):
     with tf.variable_scope('pi'):

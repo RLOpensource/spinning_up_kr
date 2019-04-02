@@ -106,7 +106,7 @@ class PPO:
         score = 0
         saver = tf.train.Saver()
 
-        env = UnityEnvironment(file_name='env/tarining', worker_id=0)
+        env = UnityEnvironment(file_name='env/training', worker_id=0)
         default_brain = env.brain_names[0]
         brain = env.brains[default_brain]
         initial_observation = env.reset()
@@ -190,5 +190,4 @@ class PPO:
 
 if __name__ == '__main__':
     agent = PPO()
-    #agent.run()
-    agent.test()
+    agent.run()

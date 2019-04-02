@@ -15,9 +15,9 @@ class DDPG:
         self.output_size = 4
         self.action_limit = 1.0
         self.hidden = [400, 300]
-        self.batch_size = 64
-        self.pi_lr = 1e-3
-        self.q_lr = 1e-3
+        self.batch_size = 100
+        self.pi_lr = 1e-4
+        self.q_lr = 1e-4
         self.noise = OU_noise(self.output_size, 1)
 
         self.x_ph, self.a_ph, self.x2_ph, self.r_ph, self.d_ph = \
@@ -85,7 +85,7 @@ class DDPG:
     def run(self):
         from mlagents.envs import UnityEnvironment
 
-        writer = SummaryWriter()
+        writer = SummaryWriter('runs/ddpg')
         num_worker = 20
         state_size = 33
         output_size = 4

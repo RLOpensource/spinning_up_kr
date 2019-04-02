@@ -6,6 +6,7 @@
 
 ```
 DDPG
+TRPO
 PPO
 PPO2
 SAC
@@ -27,14 +28,15 @@ TD3
    ├─ppo.py
    ├─ppo2.py
    ├─sac.py
-   └─td3.py
+   ├─td3.py
+   └─trpo.py
 ```
 
 ## Demonstration
 
 <div align="center">
   <img src="source/graph.png" width="60%" height='300'>
-  <img src="source/Screenshot_2019-03-29 TensorBoard.png" width="39%" height='200'>
+  <img src="source/table.png" width="39%" height='200'>
   <img src="source/out-2.gif" width="100%" height='400'>
 </div>
 
@@ -53,3 +55,9 @@ Reference
 [6] [Medipixel Reinforcement Learning Repository](https://github.com/medipixel/rl_algorithms)
 
 [7] [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor](https://arxiv.org/abs/1801.01290)
+
+[8] [tensorflow reinforcement learning framework](https://github.com/RLOpensource/tensorflow_RL)
+
+[9] [Trust Region Policy Optimization](https://arxiv.org/abs/1502.05477)
+
+[10] [Addressing Function Approximation Error in Actor-Critic Methods](https://arxiv.org/abs/1802.09477)
